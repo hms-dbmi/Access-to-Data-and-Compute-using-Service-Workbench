@@ -1,127 +1,143 @@
 ---
-title: "GIC_clinical_data"
+title: "Investigating EHR data from PIC-SURE"
 output:
   html_document: default
   pdf_document: default
 ---
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = FALSE)
 
-memory.limit(size = 16000)
+The purpose of this notebook is to help researchers get started with EHR analysis in python using clinical data exported from PIC-SURE. 
+
+### About the data
+This example code uses a synthetically generated dataset from Synthea, an open-source patient population simulation. 
+The dataset has been formatted to mirror what a data export from PIC-SURE may look like.  
+It includes all age groups and is not limited to pediatric patients. 
 
 
-```
+
+Jason Walonoski, Mark Kramer, Joseph Nichols, Andre Quina, Chris Moesel, Dylan Hall, Carlton Duffett, Kudakwashe Dube, Thomas Gallagher, Scott McLachlan, Synthea: An approach, method, and software mechanism for generating synthetic patients and the synthetic electronic health care record, Journal of the American Medical Informatics Association, Volume 25, Issue 3, March 2018, Pages 230–238, https://doi.org/10.1093/jamia/ocx079
 
 
-#### Installing the relevant Rstudio packages and loading the clinical dataset
-remove the hashtag before the "installing.packages" prior to running the code, there is only need to install them once.
-```{r 1, paged.print=TRUE}
+###  Installing packages
+The following code installs and loads packages needed for basic data management and manipulation.
+```{r 1, paged.print=TRUE, echo = FALSE}
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
 
-#install.packages(tidyverse)
-#install.packages(lubridate)
-#install.packages(readr)
+install.packages('tidyverse')
+install.packages('lubridate')
 
 library(tidyverse)
 library(lubridate)
-library(readr)
-
 
 ```
 
-### Instructions for Accessing and Loading Patient-Level Data Files
-
-#### Step 1: Define the File Path
-
-To access patient-level data, define a variable for the file path where the data is stored. The file path format is as follows:
-
-data <- '/home/[environment-type]/studies/[study-folder]/[filename]'
-
-
-**Environment-type:**
-- If you are using an RStudio workspace, use `'rstudio-user'` for the `[environment-type]`.
-- If you are using a Sagemaker, Linux, or Windows workspace, use `'ec2-user'` for the `[environment-type]`.
-
-**Study Folder:**
-- This is the name of the study where the patient-level data is stored for your project.
-
-**File Name:**
-- This is the name of the file you want to access within the study folder.
-
-#### Example:
-As a researcher using an RStudio workspace to access clinical data for your project, you would set up the file paths like this:
-
-- **Study Folder:** `GIC_training_dataset`
-- **Clinical Data File:** `synthea_10k_picsure_format.csv` (in CSV format)
-
-
-```r
-# File paths
-clinical_data <- '/home/rstudio-user/studies/GIC_training_dataset/synthea_10k_picsure_format.csv'
-
-```
-
-#### Step 2: Read the CSV Files
-Load the clinical data from the CSV file into R data frames by using the read.csv function.
+## Loading the data
+The following code downloads the dataset. <span style="color:red">Edit the loading code below once the dataset is hosted on S3</span>.
 
 ```{r}
-#load data set:
+#loading the dataset:
+data = read_csv('../../Downloads/synthea_10k_picsure_format.csv')
 
-clinical_data<- read_csv("~/home/rstudio-user/studies/GIC_training_dataset/synthea_10k_picsure_format.csv")
-
-
-# change time stamp to numeric value of the date and renaming PATIENT_NUM column to patient id
-gic_data <- clinical_data %>%
- mutate(TIMESTAMP = as_date(ymd_hms(TIMESTAMP))) %>%
-  rename(patient_id = PATIENT_NUM)
 ```
 
-***The dataset used in this demonstration includes 10,000 synthetic patient records which were generated using the Synthea Patient Generator. It includes all age groups and is not limited to pediatric patients***
+## Taking a first look at the dataset
+Let's use the `head()` function to take a first look at the dataset. 
+You'll see 5 columns:
+* PATIENT_NUM: Represents a unique patient identifier
+* CONCEPT_PATH: Represents the clinical variable for a given observation (row)
+* TVAL_CHAR: The text / character value of the clinical variable, if applicable
+* NVAL_NUM: The numerical value of the clinical variable, if applicable
+* TIMESTAMP: The date and time associated to a given observation (row)
+
+```{r}
+head(data)
+
+```
+The EHR data represented in this dataset may be very large, making it difficult to explore manually. 
+
+You'll notice that the `CONCEPT_PATH` column consists of a hierarchy that narrows down to a certain clinical variable. 
+
+Let's take a look at the highest level of the `CONCEPT_PATH` to see what kind of data we have. We can consider this to be the `VARIABLE_TYPE`.
+
+```{r}
+# Isolate the variable type using regular expressions, and create a new column for variable type
+data$VARIABLE_TYPE = str_extract(data$CONCEPT_PATH, "(?<=\\\\)[^\\\\]+(?=\\\\)")
+# Count how many observations are associated with each variable type
+table(data$VARIABLE_TYPE)
+```
+
+As seen above, this dataset contains the following data types: 
+- ACT Lab Test Results (Labs)
+- ACT Medications
+- ACT Diagnosis ICD-10 (Diagnoses)
+- ACT Procedures CPT (Procedures)
+- ACT Demographics
 
 
 #### Working with patient demographics from the dataset
 Here we will explore, organize and visualize the demographic data available in our dataset. This includes age, sex and race.
 
+This dataset should contain about 10,000 synthetic patient records. Let's verify this by checking the count of unique patient IDs present in the dataset. 
+
+```{r}
+n_distinct(data$PATIENT_NUM)
+```
+
+Let's also check what date ranges are represented in our dataset. 
+```{r}
+# Extracting date from timestamp column
+data <- data %>%
+  mutate(TIMESTAMP = ymd_hms(TIMESTAMP, quiet = TRUE), # Convert to datetime
+         DATE = as.Date(TIMESTAMP)) # Extract date
+
+# Create a histogram of dates
+ggplot(data, aes(x = DATE)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(x = "Date", y = "Frequency", title = "Histogram of Dates") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+The majority of our dataset is from the last 15 years, as expected. 
+
+We also see data stretching far back to 1920; perhaps this is associated with a patient's age. Depending on your research question, you may want to investigate those outliers. 
+
+## Exploring Demographic Data
+Here we will explore, organize and visualize the demographic data available in our dataset. This includes age, sex and race.
+
+Let's create a new dataframe called `demo_df` that will only include the demographics information.
+
 ```{r}
 # Create a new dataframe including only the demographics data:
 
-demographics<- gic_data %>%
-  filter(grepl("\\ACT Demographics", CONCEPT_PATH))
+demo_df <- data %>%
+  filter(VARIABLE_TYPE == 'ACT Demographics')
 
 ```
 
-Creating a table of patient ids we might use later on:
+Let's first take a look at the **sex** breakdown. 
 
-```{r}
+We can find the Sex related observations by searching for this value in the CONCEPT_PATH column. Then, we take the sex related values (found in the TVAL_CHAR column) and transform them into a new column, "sex". 
 
-# creating a dataframe of patient ids included in the dataset
-patient_ids<- demographics %>%
-  select(patient_id) %>%
-  distinct()
-
-```
-
-##### Sex data:
-
-Organizing the data:
 ```{r}
 # isolating and showing sex data:
 
-demographics_sex <- demographics %>%
+sex_df <- demo_df %>%
   filter(grepl("Sex", CONCEPT_PATH)) %>%
-  select(patient_id, TVAL_CHAR)
+  select(PATIENT_NUM, TVAL_CHAR)
 
 # renaming the column title to "sex":
-demographics_sex<- demographics_sex %>%
+sex_df<- sex_df %>%
   rename(sex=TVAL_CHAR)
 
-head(demographics_sex)
+head(sex_df)
 
 ```
 
 Creating a table to show the sex distribution of the dataset:
 ```{r}
 # grouping by sex and calculating the percentage of each:
-sex_count<- demographics_sex %>%
+sex_count<- sex_df %>%
   group_by(sex) %>%
   summarise(count=n()) %>%
   mutate(percentage = (count / sum(count)) * 100)
@@ -129,23 +145,25 @@ sex_count<- demographics_sex %>%
 sex_count
 ```
 
-##### Age data:
+Now let's look at the **age** distribution of our patients. 
 
-Organizing the data:
+Below, we isolate the age data by searching the CONCEPT_PATH for Age. Then, we take the age related values (found in the NVAL_NUM column) and transform them into a new column, "age". 
+
 ```{r}
 # isolating and showing age data + renaming column title to "age":
-demographics_age<- demographics %>%
+age_df<- demo_df %>%
    filter(grepl("Age", CONCEPT_PATH)) %>%
-  select(patient_id, NVAL_NUM) %>%
+  select(PATIENT_NUM, NVAL_NUM) %>%
   rename(age=NVAL_NUM) %>%
-  arrange(patient_id)
+  arrange(PATIENT_NUM)
+
 ```
 
-Plotting the age distribution in the dataset: 
+We can now use this age dataframe to plot the age distribution in our data. 
 ```{r}
 #Creating a histogram, demonstrating the age distribution:
 
-ggplot(data = demographics_age) +
+ggplot(data = age_df) +
   geom_histogram(aes(x=age), binwidth = 1, fill = "blue", color = "black") +
   theme_bw() +
   scale_x_continuous(n.breaks=18)+
@@ -154,11 +172,17 @@ ggplot(data = demographics_age) +
 
 ```
 
-creating a table of patients age group distribution (18, 18-65, 65+)
+We can also group our patients into age groups and create a table detailing how many patients are in each age group. 
+
+We will group our patients into the following groups: 
+* under 18
+* 18-65
+* 65+
+
 ```{r}
 # grouping by age (<18 , 18-65, 65+)
 
-age_groups<- demographics_age %>%
+age_groups<- age_df %>%
   mutate(age_group= case_when(age < 18 ~ "<18",
                     age >= 18 & age <65 ~ "18-65",
                    age >=65 ~ "65+"))
@@ -173,13 +197,15 @@ age_group_sum<- age_groups %>%
 age_group_sum
 ```
 
-##### Race data:
-Organizing the data: 
+Finally, let's investigate the **race** distribution. 
+
+Similarly to above, we isolate the race data by searching the CONCEPT_PATH for Race. Then, we take the race related values (found in the TVAL_CHAR column) and transform them into a new column, "race". 
+
 ```{r}
 # isolating race data + renaming column title to "race":
-demographics_race<- demographics %>%
+race_df<- demo_df %>%
   filter(grepl("Race", CONCEPT_PATH)) %>%
-   select(patient_id, TVAL_CHAR)%>%
+   select(PATIENT_NUM, TVAL_CHAR)%>%
   rename(race=TVAL_CHAR)
 
 ```
@@ -189,7 +215,7 @@ creating a table of the race distribution
 
 # grouping by race and calculating the percentage of each:
 
-race_count <- demographics_race %>%
+race_count <- race_df %>%
   group_by(race) %>%
   summarise(count = n()) %>%
   mutate(percentage = round((count / sum(count)) * 100,2)) %>%
@@ -200,7 +226,7 @@ race_count
 
 ```
 
-creating a graphic representation of race distribution: 
+We will plot these results in a bar plot. 
 ```{r}
 # create a bar plot representing race distribution:
 
@@ -211,129 +237,146 @@ ggplot(data= race_count) +
   theme(legend.position = "none")+
   labs(x="Race",y="Percentage", title="Participants Race Distribution") 
 ```
+The way our initial dataset is formatted can be difficult to view multiple variables about a given patient at the same time. 
 
-##### Merging demographic data
+Below, we create one table presenting all demographic data (age, sex, race) by patient ID. 
 
-creating one table presenting all the demographic data by patient id (age, sex, race)
 ```{r}
 #merging all columns to show age, sex, race in one table:
 
-demographics_joined<- demographics_age %>%
-  left_join(demographics_sex, by="patient_id") %>%
-  left_join(demographics_race, by= "patient_id")
+demographics_joined<- age_df %>%
+  left_join(sex_df, by="PATIENT_NUM") %>%
+  left_join(race_df, by= "PATIENT_NUM")
 
 head(demographics_joined)
 ```
 
-
-### Diagnosis
-
-##### Here we will look for specific patient diagnostic cohorts and then cross data with their demographic data, as well as other diagnostic codes. 
+## Investigating ICD codes: Epilepsy case study
+We can isolate the diagnosis related information by searching for 'ACT Diagnosis' in the CONCEPT_PATH column.
 
 ```{r}
 #create a new data frame including only diagnosis data:
 
-diagnosis_icd10 <- gic_data %>%
+diagnosis_icd10 <- data %>%
   filter(grepl("\\ACT Diagnosis ICD-10", CONCEPT_PATH))
 ```
 
 
-##### Looking at a group of diagnosis: creating a cohort of patients with a certain disease or group of diseases by using ICD codes. In this example the disease of interest is epilepsy, we will be using ICD group code "G40", which includes the following and their sub-groups:
-- G40.0: Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset.
-- G40.1: Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with simple partial seizures.
-- G40.2: Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with complex partial seizures.
-- G40.3: Generalized idiopathic epilepsy and epileptic syndromes
-- G40.A: Absence epileptic syndrome.
-- G40.B: Juvenile myoclonic epilepsy [impulsive petit mal].
-- G40.C: Lafora progressive myoclonus epilepsy, intractable.
-- G40.4: Other generalized epilepsy and epileptic syndromes.
-- G40.5: Epileptic seizures related to external causes.
-- G40.8: Other epilepsy and recurrent seizures.
-- G40.9: Epilepsy, unspecified.
+### In this case study, we will investigate epilepsy as the disease of interest. 
 
-##### A full list of ICD-10 codes can be found at  ("https://www.icd10data.com/ICD10CM/Codes")
+Epilapsy is represented by  ICD group code "G40", which includes the following and their sub-groups:
+* G40.0: Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset.
+* G40.1: Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with simple partial seizures.
+* G40.2: Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with complex partial seizures.
+* G40.3: Generalized idiopathic epilepsy and epileptic syndromes
+* G40.A: Absence epileptic syndrome.
+* G40.B: Juvenile myoclonic epilepsy [impulsive petit mal].
+* G40.C: Lafora progressive myoclonus epilepsy, intractable.
+* G40.4: Other generalized epilepsy and epileptic syndromes.
+* G40.5: Epileptic seizures related to external causes.
+* G40.8: Other epilepsy and recurrent seizures.
+* G40.9: Epilepsy, unspecified.
 
-creating a new data-frame that only includes patients with epilepsy and then creating a seprate list of patient ids:
-(you can replace the ICD code "G40" with the ICD code of your choice in the next chunk of code)
+*A full list of ICD-10 codes can be found at https://www.icd10data.com/ICD10CM/Codes*
+
+### Isolating the patient cohort
+
+First, we create a new data-frame that only includes patients with epilepsy.
+
+We create a variable called `icd_code_of_interest` and set it to `G40`.
+
+(you can replace the ICD code "G40" with the ICD code of your choice if you are interested in investigating a different disease group!):
+
+You can see a preview of this epilepsy focused dataset below.
+
 ```{r}
 #filtering to include only patients diagnosed with epilepsy and recurrent seizures (ICD GROUP CODE G40):
+icd_code_of_interest = 'G40'
 
 epilepsy_icd10<- diagnosis_icd10 %>%
-  filter(grepl("G40", TVAL_CHAR)) %>%
-  select(patient_id, CONCEPT_PATH,TVAL_CHAR) %>%
+  filter(grepl(icd_code_of_interest, TVAL_CHAR)) %>%
+  select(PATIENT_NUM, CONCEPT_PATH,TVAL_CHAR) %>%
   rename(icd_10_code= TVAL_CHAR) %>%
-  group_by(patient_id)
+  group_by(PATIENT_NUM)
 
 # creating a final list of patient_ids with epilepsy (G40 group code), removing any duplicate entries for same patient id :
 
 epilepsy_icd10_patient_ids<- epilepsy_icd10 %>%
-  select(patient_id) %>%
+  select(PATIENT_NUM) %>%
   distinct() 
+
+head(epilepsy_icd10)
 ```
 
-
-```{r}
-
-
-# calculating percentage of patients with epilepsy from original cohort:
-percentage_epilepsy <-  (nrow(epilepsy_icd10_patient_ids) / nrow(patient_ids)) * 100
-
-percentage_epilepsy
-
-```
-
-creating a dataframe with the epilepsy patient's demographic data
+Let's also isolate the demographic data for patients who have been diagnosed with epilepsy, and see how much of our dataset they represent.
 ```{r}
 # merging the patient id list with the demographic data
 epi_demo<- epilepsy_icd10_patient_ids %>%
-  left_join(demographics_joined, by= "patient_id") %>%
-  arrange(patient_id)
+  left_join(demographics_joined, by= "PATIENT_NUM") %>%
+  arrange(PATIENT_NUM)
 
 head(epi_demo)
+
+# calculating percentage of patients with epilepsy from original cohort:
+percentage_epilepsy <-  (nrow(epilepsy_icd10_patient_ids) / n_distinct(data$PATIENT_NUM)) * 100
+
+print(paste(round(percentage_epilepsy,2), '% of patients in our dataset have been diagnosed with an epilepsy ICD10 code.'))
+
 ```
 
 
-##### Cross-checking other diagnostic codes in defined patient cohort (Epilepsy)
+### Investigating the presence of other diagnostic codes in our defined patient cohort
+Our cohort consists of patients with epilepsy. 
+Let's say we are interested in comparing which patients with epilepsy also have been diagnosed with migranes (ICD GROUP CODE G43).
+
+We create a variable called `icd` and set it to `G43`. (you can replace the ICD code "G43" with the ICD code of your choice in the next chunk of code)
+
+We then search for this ICD code of interest within our cohort. 
 
 This will be done in a few steps.
 (you can replace the ICD code "G43" with the ICD code of your choice in the next chunk of code):
 ```{r}
-##first, creating a data-frame including only patients diagnosed with migraines (ICD GROUP CODE G43)
+# (ICD GROUP CODE G43)
+icd <- 'G43'
+
+##first, creating a data-frame including only patients diagnosed with migraines 
 
 migraine_icd10<- diagnosis_icd10 %>%
-  filter(grepl("G43",TVAL_CHAR)) %>% 
-  select(patient_id, CONCEPT_PATH,TVAL_CHAR) %>%
+  filter(grepl(icd,TVAL_CHAR)) %>% 
+  select(PATIENT_NUM, CONCEPT_PATH,TVAL_CHAR) %>%
   rename(icd_10_code= TVAL_CHAR)%>%
-  group_by(patient_id)
+  group_by(PATIENT_NUM)
 
 #next, extracting only the patient id's and removing any duplicates.
 migraine_icd10_patient_ids<- migraine_icd10 %>%
-  select(patient_id) %>%
+  select(PATIENT_NUM) %>%
   distinct()
 
 
 #finally, merging the epilepsy patient id list with the migraine patient id list to create a list including only patients that have both epilepsy and migraine ICD10 codes 
 epilepsy_migraine <- epilepsy_icd10_patient_ids %>%
-  inner_join(migraine_icd10_patient_ids, by = "patient_id")
+  inner_join(migraine_icd10_patient_ids, by = "PATIENT_NUM")
   
 
 ```
 
-now, let's examine the original epilepsy dataframe and add a column indicating which patients also have migraines:
+Now, let's examine the original epilepsy dataframe and add a column indicating which patients also have migraines:
 ```{r}
 
 # merging the joint list to the original epilepsy patient list, and creating a migraine column indicating if the patient with epilepsy also has a migraine diagnosis (yes=1/ no=0):
 
 epilepsy_merged <- epilepsy_icd10_patient_ids %>%
-  left_join(epilepsy_migraine %>% mutate(migraines = 1), by = "patient_id") %>%
+  left_join(epilepsy_migraine %>% mutate(migraines = 1), by = "PATIENT_NUM") %>%
   replace_na(list(migraines = 0))  %>%
-  left_join(epi_demo, by="patient_id") %>%
-  arrange(patient_id)
+  left_join(epi_demo, by="PATIENT_NUM") %>%
+  arrange(PATIENT_NUM)
 
 head(epilepsy_merged)
 ```
 
-creating a table showing the percentage of patients with migraines in the epilepsy patient cohort:
+The following table shows the percentage of patients with migraines in the epilepsy patient cohort.
+
+We can see that only a small percentage of our patients with epilepsy also experience migraines.
 ```{r}
 
 #calculating the number and percentage of patient with migraines in the epilepsy patient cohort
@@ -346,14 +389,17 @@ epilepsy_migraine_count
 ```
 
 
-#### Medication (administered medication)
+### Investigating what medications have been administered to our cohort of interest
 
-##### Creating a list of medications from the original dataset
+Let's now look into the medications data. We can isolate the medications data by searching the CONCEPT_PATH variable for the term `ACT Medications`.
+
+
+
 ```{r}
 
 #creating a new dataframe containing only medication data:
 
-medications<- gic_data %>%
+medications<- data %>%
   filter(grepl("\\ACT Medications", CONCEPT_PATH)) 
 
 #showing list with unique values of medications included in the dataset:
@@ -363,12 +409,21 @@ medication_list<- medications %>%
   distinct() %>%
   arrange(CONCEPT_PATH)
 
-medication_list
+head(medication_list)
 ```
 
-##### Looking at selected medication administration in the original dataset
+For our epilepsy case study, we are interested in knowing whether a patient has been administered Carbamazepine or Pregabalin. 
+- Carbamazepine is used to manage and treat epilepsy, trigeminal neuralgia, and acute manic and mixed episodes in bipolar I disorder.
+- Pregabalin treats nerve and muscle pain, including fibromyalgia. It can also treat seizures.
 
-here we have chosen Carbamazepine and Pregabalin. You can change to any other medication included in the medication list.
+
+We will search our dataset for these medications and isolate which patients are associated to those observations.
+
+We then isolate our results to our cohort of interest. 
+
+The resulting table contains information on whether or not a patient who was diagnosed with epilepsy was ever administered carbamazepine or pregabalin. 
+
+
 ```{r}
 
 #filtering original dataset to patients receiving Carbamazepine or/and Pregabalin
@@ -376,63 +431,58 @@ here we have chosen Carbamazepine and Pregabalin. You can change to any other me
 carba_preg<- medications %>%
   filter(grepl("Carbamazepine",CONCEPT_PATH) |
          grepl("Pregabalin", CONCEPT_PATH)) %>%
-  select(patient_id,CONCEPT_PATH)
+  select(PATIENT_NUM,CONCEPT_PATH)
 
 #creating a new column indicating if a patient has been prescribed Carbamazepine or Pregabalin (yes=1,no=0) for easier visualization and data manipulation
 cleaned_medication <- carba_preg %>%
   mutate(carbamazepine= if_else(grepl("Carbamazepine", CONCEPT_PATH) , 1,0),
          pregabalin=if_else(grepl("Pregabalin", CONCEPT_PATH) , 1,0) ) %>%
-  group_by(patient_id) %>%
+  group_by(PATIENT_NUM) %>%
   summarize(
     carbamazepine = max(carbamazepine),
     pregabalin = max(pregabalin)
   ) %>%
-  arrange(patient_id)
+  arrange(PATIENT_NUM)
 
 head(cleaned_medication)
 
+print(paste(sum(cleaned_medication$carbamazepine), "patient(s) with epilepsy were taking carbamazepine"))
+print(paste(sum(cleaned_medication$pregabalin), "patient(s) with epilepsy were taking pregabalin"))
 ```
 
-##### Looking at the selected medication in the specific patient cohort we formerly created (Epilepsy)
-```{r}
+### Investigating lab results over time for our cohort of interest
 
-#merging the patient id list of epilepsy patients with the patient medication data frame, filing missing entries with "0"(=no/ no information included in dataset):
+We can isolate the lab related information by searching for 'ACT Lab Test Results' in the CONCEPT_PATH column.
 
-patient_icd10_med <- epilepsy_icd10_patient_ids %>% 
-  left_join(cleaned_medication, by="patient_id") %>%
-  mutate_all(~replace(., is.na(.), 0)) %>%
-  arrange(patient_id)
+Below is a preview of the labs available in the dataset. 
 
-head(patient_icd10_med)
-
-```
-
-#### Lab Results
-exploring lab results and different graphic representations of the data
-
-##### Creating a list of lab tests available in dataset:
 ```{r}
 
 # Creating a new dataframe containing only the lab test results for all patients in the original dataset:
-lab_test_results<- gic_data %>%
+lab_test_results<- data %>%
    filter(grepl("\\ACT Lab Test Results",CONCEPT_PATH)) 
 
 # creating a list with unique types of lab tests included in the dataset:
-lab_list<- gic_data %>%
+lab_list<- data %>%
    filter(grepl("\\ACT Lab Test Results",CONCEPT_PATH)) %>%
   select(CONCEPT_PATH)%>%
   distinct()
 
-lab_list
+head(lab_list)
 
 ```
 
 
-##### Looking at specific lab test results wihthin a defined time frame:
-**DISCLAIMER: The number of lab result entries can vary widely per patient, and even multiple entries per day are possible. In the graphic representation and statistical measurement tables, each individual lab result is treated as an individual data point, without the use of weighted averages or other methodological statistical adjustments.
+In the following example, we will focus on AST (aspartate aminotransferase) and ALT (alanine transaminase) lab test results. 
+We will also only focus on lab results from 2023. 
+- AST is an enzyme found in the liver, muscles, and other organs. When cells that contain AST are damaged, they release AST into the blood
+- An ALT blood test is used to diagnose liver disorders. ALT is a liver enzyme that is released in the blood when liver cells are damaged.
+
 (you can replace "ALT" or "AST" with your choice of lab test, to add additional lab tests just add a "|" before the next lab test name)
 
-looking at LFTs results in 2023 and creating a statistical measurement table:
+
+*Note that the number of lab result entries can vary widely per patient, and even multiple entries per day are possible. In the graphic representation and statistical measurement tables, each individual lab result is treated as an individual data point, without the use of weighted averages or other methodological statistical adjustments.*
+
 ```{r}
 #filtering the original dataset to include only AST and ALT test results from the year 2023, cleaning the data, and organizing it by patient id:
 
@@ -442,10 +492,11 @@ alt_ast<- lab_test_results %>%
   mutate(lab_test =case_when(grepl("AST", CONCEPT_PATH) ~ "ast",
                               grepl("ALT", CONCEPT_PATH) ~ "alt")) %>%
   rename(value=NVAL_NUM) %>%
-  select(patient_id, lab_test, value, TIMESTAMP) %>%
- arrange(patient_id, TIMESTAMP) %>%
+  select(PATIENT_NUM, lab_test, value, TIMESTAMP) %>%
+ arrange(PATIENT_NUM, TIMESTAMP) %>%
   distinct()
   
+head(alt_ast)
 
 #creating a table with statistic summary values 
 alt_ast_sum<- alt_ast %>%
@@ -458,9 +509,11 @@ alt_ast_sum<- alt_ast %>%
           upper_ci= mean +1.96*se)
 
 alt_ast_sum
+
 ```
 
-##### Graphing results:
+
+Let's now graph a distribution of ALT and AST values in 2023.
 ```{r}
 
 #creating a box plot graph of the results. 
@@ -468,20 +521,24 @@ alt_ast_sum
 ggplot(data=alt_ast)+
   geom_boxplot(aes(x=lab_test, y=value, fill= lab_test))+
   theme_bw()+
-  labs(x= "Lab Test", y= "Value (u/l)", title= "Liver Transaminase Levels in 2023, n=#", fill= " ")
+  labs(x= "Lab Test", y= "Value (u/l)", title= paste("Liver Transaminase Levels in 2023, n=", nrow(alt_ast)), fill= " ")
 
 
 ```
 
 
-##### Looking at an individual patient's lab results over time:
-Looking at patient id # 03c3d97e-febe-7038-bcb7-961fc962ecba
-we will look at the LFT trends over the year 2023
+Let's say we are interested in a specific patient with epilepsy. 
+Below, we plot the AST and ALT lab trends over the year 2023 for patient id # 1f9e58a1-0b6f-7f53-1495-8b05b69ad4ed.
+
+You can modify this code for any patient of interest by changing the `patient_of_interest` variable.
+
 ```{r}
+patient_of_interest <- "03c3d97e-febe-7038-bcb7-961fc962ecba"
+
 #filtering for the specific patient's AST and ALT levels over time using the 2023 alt/ast dataframe we previously created: 
 
 patient_group<- alt_ast %>% 
-  filter(grepl("03c3d97e-febe-7038-bcb7-961fc962ecba", patient_id))
+  filter(grepl(patient_of_interest, PATIENT_NUM))
 
 ### creating a plot showing the results over time: 
 
@@ -501,26 +558,33 @@ ggplot(data = patient_group) +
 ```
 
 
-#### Procedures
-exploring the procedures in the data set and looking at specific procedures of interest in a given time frame
+## Investigating procedural data over time. Case study: Appendectomy.
 
-##### creating a procedure list available in the dataset : 
+Finally, let's take a look at the procedures data. 
+
+The procedures are defined by CPT codes. 
+We will explore the procedures in this data set and look at specific procedures of interest in a given time frame.
+
+We can isolate the procedure related information by searching for 'ACT Procedures' in the CONCEPT_PATH column.
+
+Below is an example of the procedures documented in this dataset.
+
+
 ```{r}
 
 # creating a list with unique procedures in the dataset : 
 
-procedures <- gic_data %>%
+procedures <- data %>%
   filter(grepl("\\\\ACT Procedures", CONCEPT_PATH)) %>%
   distinct(CONCEPT_PATH, TVAL_CHAR) %>%
   rename(procedure=TVAL_CHAR)
 ```
 
-##### selecting a specific procedure and timeframe
-looking at patients who have undergone an appendectomy since the beginning of 2020
+Below, we filter the procedural data to identify a cohort of patients who have undergone an appendectomy since the beginning of 2020.
 ```{r}
 # filtering to create a new dataframe including patients with a history of an appendectomy procedure
 
-appendectomy<- gic_data %>%
+appendectomy<- data %>%
   filter(grepl("Appendectomy", TVAL_CHAR)) %>%
   rename(procedure=TVAL_CHAR) %>%
   select(-CONCEPT_PATH, -NVAL_NUM) %>%
@@ -530,7 +594,7 @@ appendectomy<- gic_data %>%
 
 appendectomy_2020<- appendectomy %>%
   filter(TIMESTAMP >= as.Date("2020-01-01")) %>%
-  arrange(patient_id)
+  arrange(PATIENT_NUM)
 
 head(appendectomy_2020)
 ```
