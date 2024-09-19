@@ -444,10 +444,15 @@ cleaned_medication <- carba_preg %>%
   ) %>%
   arrange(PATIENT_NUM)
 
+patient_icd10_med <- epilepsy_icd10_patient_ids %>% 
+  left_join(cleaned_medication, by="PATIENT_NUM") %>%
+  mutate_all(~replace(., is.na(.), 0)) %>%
+  arrange(PATIENT_NUM)
+
 head(cleaned_medication)
 
-print(paste(sum(cleaned_medication$carbamazepine), "patient(s) with epilepsy were taking carbamazepine"))
-print(paste(sum(cleaned_medication$pregabalin), "patient(s) with epilepsy were taking pregabalin"))
+print(paste(sum(patient_icd10_med$carbamazepine), "patient(s) with epilepsy were taking carbamazepine"))
+print(paste(sum(patient_icd10_med$pregabalin), "patient(s) with epilepsy were taking pregabalin"))
 ```
 
 ### Investigating lab results over time for our cohort of interest
@@ -533,7 +538,7 @@ Below, we plot the AST and ALT lab trends over the year 2023 for patient id # 1f
 You can modify this code for any patient of interest by changing the `patient_of_interest` variable.
 
 ```{r}
-patient_of_interest <- "03c3d97e-febe-7038-bcb7-961fc962ecba"
+patient_of_interest <- "1f9e58a1-0b6f-7f53-1495-8b05b69ad4ed"
 
 #filtering for the specific patient's AST and ALT levels over time using the 2023 alt/ast dataframe we previously created: 
 
