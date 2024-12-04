@@ -28,15 +28,27 @@ install.packages('lubridate')
 library(tidyverse)
 library(lubridate)
 
+
 ```
 
 ## Loading the data
-The following code downloads the dataset. <span style="color:red">Edit the loading code below once the dataset is hosted on S3</span>.
+The following code loads the dataset. 
 
 ```{r}
-#loading the dataset:
-data = read_csv('../../Downloads/synthea_10k_picsure_format.csv')
+# The data is stored on github:
+url <- "https://github.com/hms-dbmi/pic-sure-public-datasets/raw/main/synthea_10k_picsure_format.csv.zip"
 
+# Temporary file to store the ZIP
+temp_zip <- tempfile(fileext = ".zip")
+GET(url, write_disk(temp_zip, overwrite = TRUE))
+files <- unzip(temp_zip, list = TRUE)
+
+# Extract and read the CSV file
+csv_file <- files$Name[1]
+data <- read_csv(unz(temp_zip, csv_file))
+
+# Clean up temporary files
+unlink(temp_zip)
 ```
 
 ## Taking a first look at the dataset
