@@ -61,6 +61,9 @@ You'll see 5 columns:
 * TIMESTAMP: The date and time associated to a given observation (row)
 
 ```{r}
+# The timestamp is in unix format. Convert to datetime
+data$TIMESTAMP <- as.POSIXct(data$TIMESTAMP, origin = "1970-01-01", tz = "UTC")
+
 head(data)
 
 ```
@@ -550,7 +553,7 @@ Below, we plot the AST and ALT lab trends over the year 2023 for patient id # 1f
 You can modify this code for any patient of interest by changing the `patient_of_interest` variable.
 
 ```{r}
-patient_of_interest <- "1f9e58a1-0b6f-7f53-1495-8b05b69ad4ed"
+patient_of_interest <- 11641
 
 #filtering for the specific patient's AST and ALT levels over time using the 2023 alt/ast dataframe we previously created: 
 
